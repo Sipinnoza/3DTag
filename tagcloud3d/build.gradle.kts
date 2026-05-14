@@ -19,7 +19,10 @@ android {
         externalNativeBuild {
             cmake {
                 cppFlags("-std=c++17")
-                arguments("-DANDROID_STL=c++_static")
+                arguments(
+                    "-DANDROID_STL=c++_static",
+                    "-DANDROID_CPPFLAGS=-fno-exceptions+-fno-rtti"
+                )
             }
         }
     }
@@ -28,6 +31,19 @@ android {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            externalNativeBuild {
+                cmake {
+                    // Release 构建用 -Os 最小体积优化
+                    cppFlags("-Os", "-DNDEBUG")
+                    arguments("-DANDROID_STL=c++_static")
+                }
+            }
         }
     }
 
