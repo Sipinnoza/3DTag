@@ -7,15 +7,17 @@ Pure C++ implementation with JNI bridge — sphere rotation, perspective project
 ## Structure
 
 ```
-src/main/
-├── AndroidManifest.xml
-├── cpp/
-│   ├── CMakeLists.txt        # CMake build config
-│   ├── tagcloud3d.h          # Engine header (TagCloudEngine, TagEntry, Point3F)
-│   ├── tagcloud3d.cpp        # Engine implementation (rotation, projection, shadow)
-│   └── tagcloud3d_jni.cpp    # JNI bridge
-└── java/com/znliang/tagcloud3d/
-    └── NativeTagCloud.kt     # Kotlin API
+tagcloud3d/
+├── build.gradle.kts          # Android Library module
+└── src/main/
+    ├── AndroidManifest.xml
+    ├── cpp/
+    │   ├── CMakeLists.txt    # CMake build config
+    │   ├── tagcloud3d.h      # Engine header
+    │   ├── tagcloud3d.cpp    # Engine implementation
+    │   └── tagcloud3d_jni.cpp # JNI bridge
+    └── java/com/znliang/tagcloud3d/
+        └── NativeTagCloud.kt # Kotlin API
 ```
 
 ## Usage
@@ -39,10 +41,19 @@ if (dirty) {
 
 ## Build
 
-Android Library module (AAR). Requires:
-- Android SDK with NDK 25.1.8937393
+Requirements:
+- JDK 17
+- Android SDK with NDK (auto-installed by Gradle)
 - CMake 3.22.1+
 - C++17
-- Kotlin / Java 11+
 
-Outputs `libtagcloud3d.so` for arm64-v8a and armeabi-v7a.
+```bash
+./gradlew :tagcloud3d:assembleRelease
+```
+
+Output AAR: `tagcloud3d/build/outputs/aar/tagcloud3d-release.aar`
+
+## CI
+
+GitHub Actions automatically builds on every push to `main`.
+Download the AAR and SO files from the **Actions → Artifacts** section.

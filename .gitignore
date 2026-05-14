@@ -1,5 +1,6 @@
 /build
-/.cxx
+/tagcloud3d/build
+/tagcloud3d/.cxx
 *.iml
 .gradle
 local.properties
