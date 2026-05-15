@@ -2,15 +2,13 @@
 
 #include <jni.h>
 #include <android/log.h>
-#include <cstring>
+#include <stdlib.h>
+#include <string.h>
 
 #define LOG_TAG "TagCloud3D"
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 using namespace tagcloud3d;
-
-// ─── 辅助：native pointer ↔ Java long ───
 
 static inline jlong engineToJlong(TagCloudEngine* engine) {
     return static_cast<jlong>(reinterpret_cast<intptr_t>(engine));
@@ -20,29 +18,23 @@ static inline TagCloudEngine* jlongToEngine(jlong handle) {
     return reinterpret_cast<TagCloudEngine*>(static_cast<intptr_t>(handle));
 }
 
-// ─── JNI 方法 ───
-
 extern "C" {
 
-// --- 生命周期 ---
+// --- Lifecycle ---
 
 JNIEXPORT jlong JNICALL
 Java_com_znliang_tagcloud3d_NativeTagCloud_nativeCreate(JNIEnv* /*env*/, jobject /*thiz*/) {
-    auto* engine = new TagCloudEngine();
-    LOGD("TagCloudEngine created: handle=%p", engine);
+    TagCloudEngine* engine = new TagCloudEngine();
     return engineToJlong(engine);
 }
 
 JNIEXPORT void JNICALL
 Java_com_znliang_tagcloud3d_NativeTagCloud_nativeDestroy(JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
-    auto* engine = jlongToEngine(handle);
-    if (engine) {
-        LOGD("TagCloudEngine destroyed: handle=%p", engine);
-        delete engine;
-    }
+    TagCloudEngine* engine = jlongToEngine(handle);
+    if (engine) delete engine;
 }
 
-// --- 配置 ---
+// --- Config ---
 
 JNIEXPORT void JNICALL
 Java_com_znliang_tagcloud3d_NativeTagCloud_nativeSetRadius(JNIEnv* /*env*/, jobject /*thiz*/, jlong handle, jint radius) {
@@ -80,7 +72,7 @@ Java_com_znliang_tagcloud3d_NativeTagCloud_nativeSetLightAngle(JNIEnv* /*env*/, 
     if (engine) engine->setLightAngle(azimuth, elevation);
 }
 
-// --- 标签管理 ---
+// --- Tag management ---
 
 JNIEXPORT void JNICALL
 Java_com_znliang_tagcloud3d_NativeTagCloud_nativeClear(JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
@@ -108,7 +100,7 @@ Java_com_znliang_tagcloud3d_NativeTagCloud_nativeRecalculateColors(JNIEnv* /*env
     if (engine) engine->recalculateColors();
 }
 
-// --- 每帧更新 ---
+// --- Per-frame update ---
 
 JNIEXPORT jboolean JNICALL
 Java_com_znliang_tagcloud3d_NativeTagCloud_nativeUpdate(JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
@@ -117,26 +109,22 @@ Java_com_znliang_tagcloud3d_NativeTagCloud_nativeUpdate(JNIEnv* /*env*/, jobject
     return engine->update() ? JNI_TRUE : JNI_FALSE;
 }
 
-// --- 读取标签数据（批量） ---
+// --- Read tag data (batch) ---
 
-// 返回 float[tagCount * 12]：
-// 每个标签 12 个 float: flatX, flatY, scale, alpha, colorA, colorR, colorG, colorB,
-//                         shadowFlatX, shadowFlatY, shadowScale, shadowAlpha
 JNIEXPORT jfloatArray JNICALL
 Java_com_znliang_tagcloud3d_NativeTagCloud_nativeGetTagData(JNIEnv* env, jobject /*thiz*/, jlong handle) {
     auto* engine = jlongToEngine(handle);
     if (!engine) return nullptr;
 
     const auto& tags = engine->tags();
-    const size_t count = tags.size();
+    const size_t count = tags.size;
     constexpr size_t FIELDS = 12;
     const size_t total = count * FIELDS;
 
     jfloatArray result = env->NewFloatArray(static_cast<jsize>(total));
     if (!result || count == 0) return result;
 
-    // 临时缓冲区
-    std::vector<float> buf(total);
+    float* buf = static_cast<float*>(malloc(total * sizeof(float)));
     for (size_t i = 0; i < count; ++i) {
         const auto& t = tags[i];
         const size_t base = i * FIELDS;
@@ -154,28 +142,29 @@ Java_com_znliang_tagcloud3d_NativeTagCloud_nativeGetTagData(JNIEnv* env, jobject
         buf[base + 11] = t.shadowAlpha;
     }
 
-    env->SetFloatArrayRegion(result, 0, static_cast<jsize>(total), buf.data());
+    env->SetFloatArrayRegion(result, 0, static_cast<jsize>(total), buf);
+    free(buf);
     return result;
 }
 
-// 返回 int[tagCount]：每个标签的 popularity
 JNIEXPORT jintArray JNICALL
 Java_com_znliang_tagcloud3d_NativeTagCloud_nativeGetPopularities(JNIEnv* env, jobject /*thiz*/, jlong handle) {
     auto* engine = jlongToEngine(handle);
     if (!engine) return nullptr;
 
     const auto& tags = engine->tags();
-    const size_t count = tags.size();
+    const size_t count = tags.size;
 
     jintArray result = env->NewIntArray(static_cast<jsize>(count));
     if (!result || count == 0) return result;
 
-    std::vector<jint> buf(count);
+    jint* buf = static_cast<jint*>(malloc(count * sizeof(jint)));
     for (size_t i = 0; i < count; ++i) {
         buf[i] = tags[i].popularity;
     }
 
-    env->SetIntArrayRegion(result, 0, static_cast<jsize>(count), buf.data());
+    env->SetIntArrayRegion(result, 0, static_cast<jsize>(count), buf);
+    free(buf);
     return result;
 }
 

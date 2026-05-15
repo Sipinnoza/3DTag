@@ -1,10 +1,14 @@
 #include "tagcloud3d.h"
 
-#include <algorithm>
-#include <cmath>
-#include <cstdlib>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
 
 namespace tagcloud3d {
+
+TagCloudEngine::~TagCloudEngine() {
+    free(deltaBuffer_);
+}
 
 // ─── 标签管理 ───
 
@@ -17,50 +21,72 @@ void TagCloudEngine::addTag(int popularity) {
     updateAll();
 }
 
+// qsort 比较函数（替代 std::sort lambda）
+struct SortCtx {
+    const TagEntry* tags;
+    static int compare(const void* a, const void* b) {
+        int pa = static_cast<const SortCtx*>(a)->tags[*static_cast<const size_t*>(a)].popularity;  // unused
+        // We don't use this approach; use a simpler method below
+        return 0;
+    }
+};
+
+// 简单冒泡排序（标签数量少，不需要复杂排序）
+static void sortIndicesByPopularity(size_t* indices, size_t count, const TagEntry* tags) {
+    for (size_t i = 0; i < count; ++i) {
+        for (size_t j = i + 1; j < count; ++j) {
+            if (tags[indices[j]].popularity > tags[indices[i]].popularity) {
+                size_t tmp = indices[i];
+                indices[i] = indices[j];
+                indices[j] = tmp;
+            }
+        }
+    }
+}
+
 void TagCloudEngine::createSurfaceDistribution() {
-    const size_t count = tags_.size();
+    const size_t count = tags_.size;
     if (count == 0) return;
 
-    // 按 popularity 降序排序，常用标签放正面
-    std::vector<size_t> indices(count);
+    // 按热度降序排索引
+    size_t* indices = static_cast<size_t*>(malloc(count * sizeof(size_t)));
     for (size_t i = 0; i < count; ++i) indices[i] = i;
-    std::sort(indices.begin(), indices.end(), [this](size_t a, size_t b) {
-        return tags_[a].popularity > tags_[b].popularity;
-    });
+    sortIndicesByPopularity(indices, count, tags_.data);
 
-    const double goldenRatio = (1.0 + std::sqrt(5.0)) / 2.0;
-    const double PI = 3.14159265358979323846;
-    const int denom = static_cast<int>(count - 1);
-    const int safeDenom = denom > 0 ? denom : 1;
+    const double goldenRatio = (1.0 + sqrt(5.0)) / 2.0;
+    constexpr double PI = 3.14159265358979323846;
+    const int safeDenom = count > 1 ? static_cast<int>(count - 1) : 1;
 
     for (size_t i = 0; i < count; ++i) {
         auto& tag = tags_[indices[i]];
-        const double theta = std::acos(1.0 - 2.0 * static_cast<double>(i) / safeDenom);
+        const double theta = acos(1.0 - 2.0 * static_cast<double>(i) / safeDenom);
         const double phi = static_cast<double>(i) * goldenRatio * 2.0 * PI;
-        tag.spatialX = static_cast<float>(radius_ * std::sin(theta) * std::cos(phi));
-        tag.spatialY = static_cast<float>(radius_ * std::sin(theta) * std::sin(phi));
-        tag.spatialZ = static_cast<float>(radius_ * std::cos(theta));
+        tag.spatialX = static_cast<float>(radius_ * sin(theta) * cos(phi));
+        tag.spatialY = static_cast<float>(radius_ * sin(theta) * sin(phi));
+        tag.spatialZ = static_cast<float>(radius_ * cos(theta));
         updateTagProjection(tag);
     }
+
+    free(indices);
 }
 
 void TagCloudEngine::recalculateColors() {
     if (tags_.empty()) return;
     minPopularity_ = tags_[0].popularity;
     maxPopularity_ = tags_[0].popularity;
-    for (const auto& t : tags_) {
-        if (t.popularity < minPopularity_) minPopularity_ = t.popularity;
-        if (t.popularity > maxPopularity_) maxPopularity_ = t.popularity;
+    for (size_t i = 1; i < tags_.size; ++i) {
+        if (tags_[i].popularity < minPopularity_) minPopularity_ = tags_[i].popularity;
+        if (tags_[i].popularity > maxPopularity_) maxPopularity_ = tags_[i].popularity;
     }
-    for (auto& t : tags_) {
-        initTag(t);
+    for (size_t i = 0; i < tags_.size; ++i) {
+        initTag(tags_[i]);
     }
 }
 
 // ─── 每帧更新 ───
 
 bool TagCloudEngine::update() {
-    if (std::fabs(inertiaX_) > 0.1f || std::fabs(inertiaY_) > 0.1f) {
+    if (fabsf(inertiaX_) > 0.1f || fabsf(inertiaY_) > 0.1f) {
         recalculateAngle();
         updateAll();
         dirty_ = true;
@@ -90,27 +116,27 @@ float TagCloudEngine::getPercentage(int popularity) const {
 
 void TagCloudEngine::positionRandom(TagEntry& tag) {
     constexpr double PI = 3.14159265358979323846;
-    const double phi = std::rand() / static_cast<double>(RAND_MAX) * PI;
-    const double theta = std::rand() / static_cast<double>(RAND_MAX) * 2.0 * PI;
-    tag.spatialX = static_cast<float>(radius_ * std::cos(theta) * std::sin(phi));
-    tag.spatialY = static_cast<float>(radius_ * std::sin(theta) * std::sin(phi));
-    tag.spatialZ = static_cast<float>(radius_ * std::cos(phi));
+    const double phi = rand() / static_cast<double>(RAND_MAX) * PI;
+    const double theta = rand() / static_cast<double>(RAND_MAX) * 2.0 * PI;
+    tag.spatialX = static_cast<float>(radius_ * cos(theta) * sin(phi));
+    tag.spatialY = static_cast<float>(radius_ * sin(theta) * sin(phi));
+    tag.spatialZ = static_cast<float>(radius_ * cos(phi));
 }
 
 void TagCloudEngine::updateAll() {
     const float diameter = static_cast<float>(2 * radius_);
     const float projectionDepth = diameter * 1.3f;
-    const size_t count = tags_.size();
+    const size_t count = tags_.size;
 
-    // 复用 delta 缓冲区
-    if (deltaBuffer_.size() < count) {
-        deltaBuffer_.resize(count);
+    // 扩展 delta 缓冲区
+    if (count > deltaBufCap_) {
+        deltaBufCap_ = count;
+        deltaBuffer_ = static_cast<float*>(realloc(deltaBuffer_, deltaBufCap_ * sizeof(float)));
     }
 
-    float maxDelta = std::numeric_limits<float>::min();
-    float minDelta = std::numeric_limits<float>::max();
+    float maxDelta = -1e30f;
+    float minDelta = 1e30f;
 
-    // 单遍：旋转 + 投影 + 收集 delta
     for (size_t i = 0; i < count; ++i) {
         auto& tag = tags_[i];
         applyRotation(tag.spatialX, tag.spatialY, tag.spatialZ);
@@ -129,7 +155,6 @@ void TagCloudEngine::updateAll() {
         if (delta < minDelta) minDelta = delta;
     }
 
-    // 第二遍：alpha
     const float range = maxDelta - minDelta;
     if (range > 0.f) {
         for (size_t i = 0; i < count; ++i) {
@@ -138,33 +163,16 @@ void TagCloudEngine::updateAll() {
         }
     }
 
-    // ─── 第三遍：正上方投影（点光源投射到球体底部平面） ───
-    // 光源在 (0, lightHeight, 0)，投影平面 y = -radius_
-    // 影子会出现在标签云下方，标签越高影子越大越淡
     computeTopDownShadow();
 }
 
-/**
- * 透视投影影子：从标签3D位置沿光线投射到地面平面 (y = -radius)，
- * 然后映射到2D屏幕坐标。光源角度可自定义。
- *
- * 光源位置由 lightAzimuth_（水平旋转角）和 lightElevation_（俯仰角）决定：
- *   lightX = lightDist * cos(elevation) * sin(azimuth)
- *   lightY = lightDist * sin(elevation)
- *   lightZ = lightDist * cos(elevation) * cos(azimuth)
- * 投影到地面平面 y = -r：
- *   t = (lightY + r) / (lightY - tag.spatialY)
- *   projX = lightX + t * (tag.spatialX - lightX)
- *   projZ = lightZ + t * (tag.spatialZ - lightZ)
- */
 void TagCloudEngine::computeTopDownShadow() {
-    const size_t count = tags_.size();
+    const size_t count = tags_.size;
     if (count == 0 || radius_ <= 0) return;
 
     const float r = static_cast<float>(radius_);
     constexpr float degToRad = 3.14159265f / 180.f;
 
-    // 光源距离球心：球顶上方 1.5 倍半径
     const float lightDist = r * 2.5f;
     const float elevRad = lightElevation_ * degToRad;
     const float azimRad = lightAzimuth_ * degToRad;
@@ -175,19 +183,16 @@ void TagCloudEngine::computeTopDownShadow() {
     const float lightY = lightDist * sinElev;
     const float lightZ = lightDist * cosElev * cosf(azimRad);
 
-    // 地面到球心的屏幕距离
     const float groundBase = r * 0.75f;
 
     for (size_t i = 0; i < count; ++i) {
         const auto& tag = tags_[i];
 
-        // 标签在球背面不画影子
         if (tag.alpha < 0.05f) {
             tags_[i].shadowAlpha = 0.f;
             continue;
         }
 
-        // ── 透视投影到地面 y = -r ──
         const float denom = lightY - tag.spatialY;
         float t = 1.f;
         if (fabsf(denom) > 0.001f) {
@@ -196,25 +201,19 @@ void TagCloudEngine::computeTopDownShadow() {
         const float projX = lightX + t * (tag.spatialX - lightX);
         const float projZ = lightZ + t * (tag.spatialZ - lightZ);
 
-        // 映射到屏幕偏移（以球心为原点）
         tags_[i].shadowFlatX = projX * (r / (r + fabsf(projX) * 0.3f));
         tags_[i].shadowFlatY = groundBase + projZ * 0.15f;
 
-        // 高度归一化：0（球底）到 1（球顶）
         const float normalizedHeight = (r - tag.spatialY) / (2.f * r);
 
-        // 越高影子越大，越低影子越小
         tags_[i].shadowScale = 0.5f + normalizedHeight * 0.6f;
-        // 越高影子越淡，越低越浓
         tags_[i].shadowAlpha = 0.25f * (1.f - normalizedHeight * 0.7f);
     }
 }
 
 void TagCloudEngine::applyRotation(float x, float y, float z) {
-    // 绕 X 轴旋转
     const float ry1 = y * cosX_ - z * sinX_;
     const float rz1 = y * sinX_ + z * cosX_;
-    // 绕 Y 轴旋转
     rotResult_[0] = x * cosY_ + rz1 * sinY_;
     rotResult_[1] = ry1;
     rotResult_[2] = -x * sinY_ + rz1 * cosY_;
@@ -222,10 +221,10 @@ void TagCloudEngine::applyRotation(float x, float y, float z) {
 
 void TagCloudEngine::recalculateAngle() {
     constexpr float degToRad = 3.14159265f / 180.f;
-    sinX_ = std::sin(inertiaX_ * degToRad);
-    cosX_ = std::cos(inertiaX_ * degToRad);
-    sinY_ = std::sin(inertiaY_ * degToRad);
-    cosY_ = std::cos(inertiaY_ * degToRad);
+    sinX_ = sinf(inertiaX_ * degToRad);
+    cosX_ = cosf(inertiaX_ * degToRad);
+    sinY_ = sinf(inertiaY_ * degToRad);
+    cosY_ = cosf(inertiaY_ * degToRad);
 }
 
 void TagCloudEngine::getColorFromGradient(float percentage, float out[4]) const {
@@ -239,7 +238,29 @@ void TagCloudEngine::updateTagProjection(TagEntry& tag) {
     const float depthFactor = (radius_ + tag.spatialZ) / (2.f * radius_);
     tag.flatX = tag.spatialX * depthFactor;
     tag.flatY = tag.spatialY * depthFactor;
-    tag.scale = std::max(0.5f, std::min(1.5f, depthFactor));
+    tag.scale = fmaxf(0.5f, fminf(1.5f, depthFactor));
+}
+
+void TagCloudEngine::setTagColorDark(const float dark[4]) {
+    memcpy(darkColor_, dark, sizeof(darkColor_));
+}
+
+void TagCloudEngine::setTagColorLight(const float light[4]) {
+    memcpy(lightColor_, light, sizeof(lightColor_));
+}
+
+void TagCloudEngine::setInertia(float inertiaX, float inertiaY) {
+    inertiaX_ = inertiaX;
+    inertiaY_ = inertiaY;
+}
+
+void TagCloudEngine::setLightAngle(float azimuth, float elevation) {
+    lightAzimuth_ = azimuth;
+    lightElevation_ = elevation;
+}
+
+void TagCloudEngine::clear() {
+    tags_.clear();
 }
 
 } // namespace tagcloud3d

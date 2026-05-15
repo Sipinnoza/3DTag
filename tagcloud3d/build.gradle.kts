@@ -18,11 +18,8 @@ android {
 
         externalNativeBuild {
             cmake {
-                cppFlags("-std=c++17")
-                arguments(
-                    "-DANDROID_STL=c++_static",
-                    "-DANDROID_CPPFLAGS=-fno-exceptions+-fno-rtti"
-                )
+                cppFlags("-std=c++17", "-fno-exceptions", "-fno-rtti")
+                arguments("-DANDROID_STL=c++_static")
             }
         }
     }
@@ -36,11 +33,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
             externalNativeBuild {
                 cmake {
-                    // Release 构建用 -Os 最小体积优化
-                    cppFlags("-Os", "-DNDEBUG")
+                    cppFlags("-Os", "-DNDEBUG", "-fno-exceptions", "-fno-rtti")
                     arguments("-DANDROID_STL=c++_static")
                 }
             }
